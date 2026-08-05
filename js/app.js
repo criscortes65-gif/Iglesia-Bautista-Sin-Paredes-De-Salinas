@@ -8,7 +8,7 @@
 
   /* ---------------- Data ---------------- */
 
-  const MINISTRIES = [
+  const DEFAULT_MINISTRIES = [
     { id: "jovenes", name: "Jóvenes", icon: "🔥",
       description: "Espacio para que los jóvenes de la iglesia crezcan en su fe, sirvan juntos y construyan comunidad." },
     { id: "grupos-dinamicos", name: "Grupos Dinámicos", icon: "🌐",
@@ -23,7 +23,7 @@
       description: "Estudio bíblico en grupos pequeños de tres personas para profundizar juntos en la Palabra." },
   ];
 
-  const PODCASTS = [
+  const DEFAULT_PODCASTS = [
     {
       id: "mas-alla-de-las-paredes",
       name: "Más Allá de las Paredes",
@@ -70,7 +70,7 @@
   ];
 
   /* Sample calendar events — edit dates/titles with the real church schedule. */
-  const SAMPLE_EVENTS = [
+  const DEFAULT_EVENTS = [
     { title: "Reunión de Jóvenes", date: "2026-08-07", time: "6:00 p.m.", ministryId: "jovenes" },
     { title: "Grupo de Oración", date: "2026-08-08", time: "9:00 a.m.", ministryId: "grupo-oracion" },
     { title: "Encuentro Damas Solteras", date: "2026-08-12", time: "7:00 p.m.", ministryId: "damas-solteras" },
@@ -122,9 +122,21 @@
   let editingPhotoPairId = null;
   let creatingPhotoPair = false;
 
+  let ministries = DEFAULT_MINISTRIES;
+  let podcasts = DEFAULT_PODCASTS;
+  let events = DEFAULT_EVENTS;
+  let editingMinistryId = null;
+  let creatingMinistry = false;
+  let editingShowId = null;
+  let creatingPodcast = false;
+  let editingEpisodeId = null;
+  let creatingEpisode = false;
+  let editingEventId = null;
+  let creatingEvent = false;
+
   function buildDefaultNotifications() {
     const list = [];
-    PODCASTS.forEach((show) => {
+    DEFAULT_PODCASTS.forEach((show) => {
       const ep = show.episodes[0];
       list.push({
         id: "n-podcast-" + show.id,
@@ -238,13 +250,88 @@
     }
   }
 
+  async function loadMinistries() {
+    if (!sbClient) return;
+    try {
+      const { data, error } = await sbClient.from("ministries").select("*").order("sort_order", { ascending: true });
+      if (error) {
+        console.error("No se pudieron cargar los ministerios desde Supabase:", error.message);
+        return;
+      }
+      ministries = data.map((row) => ({ id: row.id, name: row.name, icon: row.icon, description: row.description }));
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para cargar ministerios:", e);
+    }
+  }
+
+  async function loadPodcasts() {
+    if (!sbClient) return;
+    try {
+      const { data: showRows, error } = await sbClient.from("podcasts").select("*").order("sort_order", { ascending: true });
+      if (error) {
+        console.error("No se pudieron cargar los podcasts desde Supabase:", error.message);
+        return;
+      }
+      const { data: epRows, error: epError } = await sbClient
+        .from("podcast_episodes")
+        .select("*")
+        .order("episode_date", { ascending: false });
+      if (epError) {
+        console.error("No se pudieron cargar los episodios desde Supabase:", epError.message);
+      }
+      podcasts = showRows.map((row, idx) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        cover: idx % 2 === 0 ? "cover-a" : "cover-b",
+        spotifyQuery: row.spotify_query,
+        youtubeQuery: row.youtube_query,
+        episodes: (epRows || [])
+          .filter((ep) => ep.podcast_id === row.id)
+          .map((ep) => ({ id: ep.id, title: ep.title, date: ep.episode_date, duration: ep.duration })),
+      }));
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para cargar podcasts:", e);
+    }
+  }
+
+  async function loadEvents() {
+    if (!sbClient) return;
+    try {
+      const { data, error } = await sbClient.from("events").select("*").order("event_date", { ascending: true });
+      if (error) {
+        console.error("No se pudieron cargar los eventos desde Supabase:", error.message);
+        return;
+      }
+      events = data.map((row) => ({
+        id: row.id,
+        title: row.title,
+        date: row.event_date,
+        time: row.event_time,
+        ministryId: row.ministry_id || undefined,
+      }));
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para cargar eventos:", e);
+    }
+  }
+
   function ministryById(id) {
-    return MINISTRIES.find((m) => m.id === id);
+    return ministries.find((m) => m.id === id);
   }
 
   function formatDate(iso) {
     const d = new Date(iso + "T00:00:00");
     return d.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" });
+  }
+
+  const ACCENT_MAP = { á: "a", à: "a", ä: "a", â: "a", é: "e", è: "e", ë: "e", ê: "e", í: "i", ì: "i", ï: "i", î: "i", ó: "o", ò: "o", ö: "o", ô: "o", ú: "u", ù: "u", ü: "u", û: "u", ñ: "n" };
+
+  function slugify(text) {
+    return text
+      .toLowerCase()
+      .replace(/[áàäâéèëêíìïîóòöôúùüûñ]/g, (ch) => ACCENT_MAP[ch] || ch)
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
   }
 
   /* ---------------- Navigation ---------------- */
@@ -505,7 +592,7 @@
 
   function populateMinistrySelect() {
     const sel = document.getElementById("ann-ministry");
-    sel.innerHTML = MINISTRIES.map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
+    sel.innerHTML = ministries.map((m) => `<option value="${m.id}">${m.name}</option>`).join("");
   }
 
   document.getElementById("ann-category").addEventListener("change", (e) => {
@@ -606,12 +693,12 @@
   const DOW_NAMES = ["dom","lun","mar","mié","jue","vie","sáb"];
 
   function eventsForMonth(year, month) {
-    const events = [...SAMPLE_EVENTS];
+    const allEvents = [...events];
     // Add recurring Sunday live-stream services for the visible month.
     const d = new Date(year, month, 1);
     while (d.getMonth() === month) {
       if (d.getDay() === 0) {
-        events.push({
+        allEvents.push({
           title: "Culto en vivo por Facebook",
           date: d.toISOString().slice(0, 10),
           time: "10:00 a.m.",
@@ -619,7 +706,7 @@
       }
       d.setDate(d.getDate() + 1);
     }
-    return events.filter((e) => {
+    return allEvents.filter((e) => {
       const ed = new Date(e.date + "T00:00:00");
       return ed.getFullYear() === year && ed.getMonth() === month;
     }).sort((a, b) => (a.date > b.date ? 1 : -1));
@@ -664,34 +751,179 @@
     renderEventsList();
   }
 
+  function eventFormFields(e) {
+    return `
+      <label>Título<input type="text" name="title" value="${e ? e.title : ""}" required /></label>
+      <label>Fecha<input type="date" name="date" value="${e ? e.date : ""}" required /></label>
+      <label>Hora (texto libre, ej: 7:00 p.m.)<input type="text" name="time" value="${e ? e.time : ""}" required /></label>
+      <label>Ministerio (opcional)
+        <select name="ministryId">
+          <option value="">— Ninguno —</option>
+          ${ministries.map((m) => `<option value="${m.id}" ${e && e.ministryId === m.id ? "selected" : ""}>${m.name}</option>`).join("")}
+        </select>
+      </label>
+    `;
+  }
+
   function renderEventsList() {
     const year = currentCalendarMonth.getFullYear();
     const month = currentCalendarMonth.getMonth();
-    let events = eventsForMonth(year, month);
+    const isAdmin = currentRole === "admin";
+    let monthEvents = eventsForMonth(year, month);
     if (selectedCalendarDate) {
-      events = events.filter((e) => e.date === selectedCalendarDate);
+      monthEvents = monthEvents.filter((e) => e.date === selectedCalendarDate);
     }
     const list = document.getElementById("events-list");
-    if (!events.length) {
-      list.innerHTML = `<div class="empty-state">No hay eventos para mostrar.</div>`;
-      return;
+
+    let html = "";
+    if (!monthEvents.length) {
+      html += `<div class="empty-state">No hay eventos para mostrar.</div>`;
+    } else {
+      html += monthEvents.map((e) => {
+        if (isAdmin && e.id && editingEventId === e.id) {
+          return `
+            <form class="edit-form card" data-edit-event="${e.id}">
+              ${eventFormFields(e)}
+              <div class="edit-form-actions">
+                <button type="submit" class="btn-primary">Guardar</button>
+                <button type="button" class="btn-secondary" data-cancel-event>Cancelar</button>
+              </div>
+              <p class="form-message" data-event-message></p>
+            </form>
+          `;
+        }
+        const d = new Date(e.date + "T00:00:00");
+        const ministry = e.ministryId ? ministryById(e.ministryId) : null;
+        return `
+          <div class="event-item">
+            <div class="event-date-box">
+              <span class="day">${d.getDate()}</span>
+              <span class="mon">${MONTH_NAMES[d.getMonth()].slice(0, 3)}</span>
+            </div>
+            <div style="flex:1">
+              <strong>${e.title}</strong>
+              <span>${e.time}${ministry ? " · " + ministry.name : ""}</span>
+            </div>
+            ${isAdmin && e.id ? `
+              <div class="event-admin-row">
+                <button class="icon-btn" data-edit-event-btn="${e.id}" type="button" aria-label="Editar">✎</button>
+                <button class="icon-btn" data-delete-event-btn="${e.id}" type="button" aria-label="Eliminar">✕</button>
+              </div>
+            ` : ""}
+          </div>
+        `;
+      }).join("");
     }
-    list.innerHTML = events.map((e) => {
-      const d = new Date(e.date + "T00:00:00");
-      const ministry = e.ministryId ? ministryById(e.ministryId) : null;
-      return `
-        <div class="event-item">
-          <div class="event-date-box">
-            <span class="day">${d.getDate()}</span>
-            <span class="mon">${MONTH_NAMES[d.getMonth()].slice(0, 3)}</span>
-          </div>
-          <div>
-            <strong>${e.title}</strong>
-            <span>${e.time}${ministry ? " · " + ministry.name : ""}</span>
-          </div>
-        </div>
-      `;
-    }).join("");
+
+    if (isAdmin) {
+      if (creatingEvent) {
+        html += `
+          <form class="edit-form card event-add-card" id="create-event-form">
+            ${eventFormFields(null)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Agregar</button>
+              <button type="button" class="btn-secondary" id="cancel-create-event">Cancelar</button>
+            </div>
+            <p class="form-message" id="create-event-message"></p>
+          </form>
+        `;
+      } else {
+        html += `<button class="edit-btn" id="add-event-btn" type="button">+ Agregar evento</button>`;
+      }
+    }
+
+    list.innerHTML = html;
+
+    if (!isAdmin) return;
+
+    if (document.getElementById("add-event-btn")) {
+      document.getElementById("add-event-btn").addEventListener("click", () => {
+        creatingEvent = true;
+        renderEventsList();
+      });
+    }
+    if (document.getElementById("cancel-create-event")) {
+      document.getElementById("cancel-create-event").addEventListener("click", () => {
+        creatingEvent = false;
+        renderEventsList();
+      });
+    }
+    if (document.getElementById("create-event-form")) {
+      document.getElementById("create-event-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const messageEl = document.getElementById("create-event-message");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const { error } = await sbClient.from("events").insert({
+            title: form.title.value.trim(),
+            event_date: form.date.value,
+            event_time: form.time.value.trim(),
+            ministry_id: form.ministryId.value || null,
+          });
+          if (error) throw error;
+          await loadEvents();
+          creatingEvent = false;
+          renderEventsList();
+        } catch (err) {
+          messageEl.textContent = "No se pudo agregar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    }
+
+    list.querySelectorAll("[data-edit-event-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingEventId = btn.dataset.editEventBtn;
+        renderEventsList();
+      });
+    });
+    list.querySelectorAll("[data-delete-event-btn]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este evento?")) return;
+        const { error } = await sbClient.from("events").delete().eq("id", btn.dataset.deleteEventBtn);
+        if (error) {
+          alert("No se pudo eliminar: " + error.message);
+          return;
+        }
+        await loadEvents();
+        renderCalendar();
+      });
+    });
+    list.querySelectorAll("[data-cancel-event]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingEventId = null;
+        renderEventsList();
+      });
+    });
+    list.querySelectorAll("[data-edit-event]").forEach((form) => {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = form.dataset.editEvent;
+        const messageEl = form.querySelector("[data-event-message]");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const { error } = await sbClient
+            .from("events")
+            .update({
+              title: form.title.value.trim(),
+              event_date: form.date.value,
+              event_time: form.time.value.trim(),
+              ministry_id: form.ministryId.value || null,
+            })
+            .eq("id", id);
+          if (error) throw error;
+          await loadEvents();
+          editingEventId = null;
+          renderCalendar();
+        } catch (err) {
+          messageEl.textContent = "No se pudo guardar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    });
   }
 
   document.getElementById("cal-prev").addEventListener("click", () => {
@@ -707,30 +939,185 @@
 
   /* ---------------- Podcasts ---------------- */
 
+  function showFormFields(s) {
+    return `
+      <label>Nombre<input type="text" name="name" value="${s ? s.name : ""}" required /></label>
+      <label>Descripción<textarea name="description" rows="2" required>${s ? s.description : ""}</textarea></label>
+      <label>Búsqueda en Spotify<input type="text" name="spotifyQuery" value="${s ? s.spotifyQuery : ""}" required /></label>
+      <label>Búsqueda en YouTube<input type="text" name="youtubeQuery" value="${s ? s.youtubeQuery : ""}" required /></label>
+    `;
+  }
+
   function renderShows() {
     const wrap = document.getElementById("podcast-shows");
-    wrap.innerHTML = PODCASTS.map((show) => `
-      <button class="show-card" data-show="${show.id}">
-        <div class="show-cover ${show.cover}">🎙️</div>
-        <div>
-          <h3>${show.name}</h3>
-          <p>${show.description}</p>
-          <div class="platform-links">
-            <span class="platform-link spotify">Spotify</span>
-            <span class="platform-link youtube">YouTube</span>
-          </div>
-        </div>
-      </button>
-    `).join("");
+    const isAdmin = currentRole === "admin";
 
-    wrap.querySelectorAll(".show-card").forEach((card) => {
+    let html = podcasts.map((show) => {
+      if (isAdmin && editingShowId === show.id) {
+        return `
+          <form class="edit-form card" data-edit-show="${show.id}">
+            ${showFormFields(show)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Guardar</button>
+              <button type="button" class="btn-secondary" data-cancel-show>Cancelar</button>
+            </div>
+            <p class="form-message" data-show-message></p>
+          </form>
+        `;
+      }
+      return `
+        <div class="show-card">
+          <button class="show-open" data-show="${show.id}" type="button">
+            <div class="show-cover ${show.cover}">🎙️</div>
+            <div>
+              <h3>${show.name}</h3>
+              <p>${show.description}</p>
+              <div class="platform-links">
+                <span class="platform-link spotify">Spotify</span>
+                <span class="platform-link youtube">YouTube</span>
+              </div>
+            </div>
+          </button>
+          ${isAdmin ? `
+            <div class="show-admin-row">
+              <button class="icon-btn" data-edit-show-btn="${show.id}" type="button" aria-label="Editar">✎</button>
+              <button class="icon-btn" data-delete-show-btn="${show.id}" type="button" aria-label="Eliminar">✕</button>
+            </div>
+          ` : ""}
+        </div>
+      `;
+    }).join("");
+
+    if (isAdmin) {
+      if (creatingPodcast) {
+        html += `
+          <form class="edit-form card" id="create-show-form">
+            ${showFormFields(null)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Agregar</button>
+              <button type="button" class="btn-secondary" id="cancel-create-show">Cancelar</button>
+            </div>
+            <p class="form-message" id="create-show-message"></p>
+          </form>
+        `;
+      } else {
+        html += `<button class="show-add" id="add-show-btn" type="button">+ Agregar podcast</button>`;
+      }
+    }
+
+    wrap.innerHTML = html;
+
+    wrap.querySelectorAll(".show-open").forEach((card) => {
       card.addEventListener("click", () => openShow(card.dataset.show));
     });
+
+    if (!isAdmin) return;
+
+    if (document.getElementById("add-show-btn")) {
+      document.getElementById("add-show-btn").addEventListener("click", () => {
+        creatingPodcast = true;
+        renderShows();
+      });
+    }
+    if (document.getElementById("cancel-create-show")) {
+      document.getElementById("cancel-create-show").addEventListener("click", () => {
+        creatingPodcast = false;
+        renderShows();
+      });
+    }
+    if (document.getElementById("create-show-form")) {
+      document.getElementById("create-show-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const messageEl = document.getElementById("create-show-message");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const id = slugify(form.name.value.trim()) || "podcast-" + Date.now();
+          const { error } = await sbClient.from("podcasts").insert({
+            id,
+            name: form.name.value.trim(),
+            description: form.description.value.trim(),
+            spotify_query: form.spotifyQuery.value.trim(),
+            youtube_query: form.youtubeQuery.value.trim(),
+            sort_order: podcasts.length,
+          });
+          if (error) throw error;
+          await loadPodcasts();
+          creatingPodcast = false;
+          renderShows();
+        } catch (err) {
+          messageEl.textContent = "No se pudo agregar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    }
+
+    wrap.querySelectorAll("[data-edit-show-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingShowId = btn.dataset.editShowBtn;
+        renderShows();
+      });
+    });
+    wrap.querySelectorAll("[data-delete-show-btn]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este podcast y todos sus episodios?")) return;
+        const { error } = await sbClient.from("podcasts").delete().eq("id", btn.dataset.deleteShowBtn);
+        if (error) {
+          alert("No se pudo eliminar: " + error.message);
+          return;
+        }
+        await loadPodcasts();
+        renderShows();
+      });
+    });
+    wrap.querySelectorAll("[data-cancel-show]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingShowId = null;
+        renderShows();
+      });
+    });
+    wrap.querySelectorAll("[data-edit-show]").forEach((form) => {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = form.dataset.editShow;
+        const messageEl = form.querySelector("[data-show-message]");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const { error } = await sbClient
+            .from("podcasts")
+            .update({
+              name: form.name.value.trim(),
+              description: form.description.value.trim(),
+              spotify_query: form.spotifyQuery.value.trim(),
+              youtube_query: form.youtubeQuery.value.trim(),
+            })
+            .eq("id", id);
+          if (error) throw error;
+          await loadPodcasts();
+          editingShowId = null;
+          renderShows();
+        } catch (err) {
+          messageEl.textContent = "No se pudo guardar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    });
+  }
+
+  function episodeFormFields(ep) {
+    return `
+      <label>Título<input type="text" name="title" value="${ep ? ep.title : ""}" required /></label>
+      <label>Fecha<input type="date" name="date" value="${ep ? ep.date : ""}" required /></label>
+      <label>Duración (ej: 24:10)<input type="text" name="duration" value="${ep ? ep.duration : ""}" required /></label>
+    `;
   }
 
   function openShow(showId) {
     currentShowId = showId;
-    const show = PODCASTS.find((s) => s.id === showId);
+    const show = podcasts.find((s) => s.id === showId);
+    const isAdmin = currentRole === "admin";
     document.getElementById("episodes-block").hidden = false;
     document.getElementById("episodes-header").innerHTML = `
       <h3>${show.name}</h3>
@@ -742,20 +1129,157 @@
            href="https://www.youtube.com/results?search_query=${encodeURIComponent(show.youtubeQuery)}">▶ Buscar en YouTube</a>
       </div>
     `;
+    renderEpisodesList(show, isAdmin);
+  }
+
+  function renderEpisodesList(show, isAdmin) {
     const list = document.getElementById("episodes-list");
-    list.innerHTML = show.episodes.map((ep, idx) => `
-      <button class="episode-item" data-episode="${idx}">
-        <span class="episode-play">▶</span>
-        <div>
-          <strong>${ep.title}</strong>
-          <span>${formatDate(ep.date)} · ${ep.duration}</span>
+
+    let html = show.episodes.map((ep) => {
+      if (isAdmin && editingEpisodeId === ep.id) {
+        return `
+          <form class="edit-form card" data-edit-episode="${ep.id}">
+            ${episodeFormFields(ep)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Guardar</button>
+              <button type="button" class="btn-secondary" data-cancel-episode>Cancelar</button>
+            </div>
+            <p class="form-message" data-episode-message></p>
+          </form>
+        `;
+      }
+      return `
+        <div class="episode-item">
+          <button class="episode-open" data-episode="${ep.id}" type="button">
+            <span class="episode-play">▶</span>
+            <div>
+              <strong>${ep.title}</strong>
+              <span>${formatDate(ep.date)} · ${ep.duration}</span>
+            </div>
+          </button>
+          ${isAdmin ? `
+            <div class="episode-admin-row">
+              <button class="icon-btn" data-edit-episode-btn="${ep.id}" type="button" aria-label="Editar">✎</button>
+              <button class="icon-btn" data-delete-episode-btn="${ep.id}" type="button" aria-label="Eliminar">✕</button>
+            </div>
+          ` : ""}
         </div>
-      </button>
-    `).join("");
-    list.querySelectorAll(".episode-item").forEach((btn) => {
+      `;
+    }).join("");
+
+    if (isAdmin) {
+      if (creatingEpisode) {
+        html += `
+          <form class="edit-form card" id="create-episode-form">
+            ${episodeFormFields(null)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Agregar</button>
+              <button type="button" class="btn-secondary" id="cancel-create-episode">Cancelar</button>
+            </div>
+            <p class="form-message" id="create-episode-message"></p>
+          </form>
+        `;
+      } else {
+        html += `<button class="edit-btn" id="add-episode-btn" type="button">+ Agregar episodio</button>`;
+      }
+    }
+
+    list.innerHTML = html;
+
+    list.querySelectorAll(".episode-open").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const ep = show.episodes[Number(btn.dataset.episode)];
+        const ep = show.episodes.find((e) => e.id === btn.dataset.episode);
         playEpisode(show.name, ep.title);
+      });
+    });
+
+    if (!isAdmin) return;
+
+    if (document.getElementById("add-episode-btn")) {
+      document.getElementById("add-episode-btn").addEventListener("click", () => {
+        creatingEpisode = true;
+        renderEpisodesList(show, isAdmin);
+      });
+    }
+    if (document.getElementById("cancel-create-episode")) {
+      document.getElementById("cancel-create-episode").addEventListener("click", () => {
+        creatingEpisode = false;
+        renderEpisodesList(show, isAdmin);
+      });
+    }
+    if (document.getElementById("create-episode-form")) {
+      document.getElementById("create-episode-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const messageEl = document.getElementById("create-episode-message");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const { error } = await sbClient.from("podcast_episodes").insert({
+            podcast_id: show.id,
+            title: form.title.value.trim(),
+            episode_date: form.date.value,
+            duration: form.duration.value.trim(),
+          });
+          if (error) throw error;
+          await loadPodcasts();
+          creatingEpisode = false;
+          openShow(show.id);
+        } catch (err) {
+          messageEl.textContent = "No se pudo agregar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    }
+
+    list.querySelectorAll("[data-edit-episode-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingEpisodeId = btn.dataset.editEpisodeBtn;
+        renderEpisodesList(show, isAdmin);
+      });
+    });
+    list.querySelectorAll("[data-delete-episode-btn]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este episodio?")) return;
+        const { error } = await sbClient.from("podcast_episodes").delete().eq("id", btn.dataset.deleteEpisodeBtn);
+        if (error) {
+          alert("No se pudo eliminar: " + error.message);
+          return;
+        }
+        await loadPodcasts();
+        openShow(show.id);
+      });
+    });
+    list.querySelectorAll("[data-cancel-episode]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingEpisodeId = null;
+        renderEpisodesList(show, isAdmin);
+      });
+    });
+    list.querySelectorAll("[data-edit-episode]").forEach((form) => {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = form.dataset.editEpisode;
+        const messageEl = form.querySelector("[data-episode-message]");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const { error } = await sbClient
+            .from("podcast_episodes")
+            .update({
+              title: form.title.value.trim(),
+              episode_date: form.date.value,
+              duration: form.duration.value.trim(),
+            })
+            .eq("id", id);
+          if (error) throw error;
+          await loadPodcasts();
+          editingEpisodeId = null;
+          openShow(show.id);
+        } catch (err) {
+          messageEl.textContent = "No se pudo guardar: " + err.message;
+          messageEl.className = "form-message error";
+        }
       });
     });
   }
@@ -807,17 +1331,164 @@
 
   /* ---------------- Ministerios ---------------- */
 
+  function ministryFormFields(m) {
+    return `
+      <label>Ícono (emoji)<input type="text" name="icon" value="${m ? m.icon : "🤝"}" maxlength="4" required /></label>
+      <label>Nombre<input type="text" name="name" value="${m ? m.name : ""}" required /></label>
+      <label>Descripción<textarea name="description" rows="3" required>${m ? m.description : ""}</textarea></label>
+    `;
+  }
+
   function renderMinistries() {
     const grid = document.getElementById("ministries-grid");
-    grid.innerHTML = MINISTRIES.map((m) => `
-      <button class="ministry-card" data-ministry="${m.id}">
-        <div class="ministry-icon">${m.icon}</div>
-        <strong>${m.name}</strong>
-        <p>${m.description}</p>
-      </button>
-    `).join("");
-    grid.querySelectorAll(".ministry-card").forEach((card) => {
+    const isAdmin = currentRole === "admin";
+
+    let html = ministries.map((m) => {
+      if (isAdmin && editingMinistryId === m.id) {
+        return `
+          <form class="ministry-card edit-form" data-edit-ministry="${m.id}">
+            ${ministryFormFields(m)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Guardar</button>
+              <button type="button" class="btn-secondary" data-cancel-ministry>Cancelar</button>
+            </div>
+            <p class="form-message" data-ministry-message></p>
+          </form>
+        `;
+      }
+      return `
+        <div class="ministry-card">
+          <button class="ministry-open" data-ministry="${m.id}" type="button">
+            <div class="ministry-icon">${m.icon}</div>
+            <strong>${m.name}</strong>
+            <p>${m.description}</p>
+          </button>
+          ${isAdmin ? `
+            <div class="ministry-admin-row">
+              <button class="icon-btn" data-edit-ministry-btn="${m.id}" type="button" aria-label="Editar">✎</button>
+              <button class="icon-btn" data-delete-ministry-btn="${m.id}" type="button" aria-label="Eliminar">✕</button>
+            </div>
+          ` : ""}
+        </div>
+      `;
+    }).join("");
+
+    if (isAdmin) {
+      if (creatingMinistry) {
+        html += `
+          <form class="ministry-card edit-form" id="create-ministry-form">
+            ${ministryFormFields(null)}
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Agregar</button>
+              <button type="button" class="btn-secondary" id="cancel-create-ministry">Cancelar</button>
+            </div>
+            <p class="form-message" id="create-ministry-message"></p>
+          </form>
+        `;
+      } else {
+        html += `<button class="ministry-card ministry-add" id="add-ministry-btn" type="button">+ Agregar ministerio</button>`;
+      }
+    }
+
+    grid.innerHTML = html;
+
+    grid.querySelectorAll(".ministry-open").forEach((card) => {
       card.addEventListener("click", () => openMinistry(card.dataset.ministry));
+    });
+
+    if (!isAdmin) return;
+
+    if (document.getElementById("add-ministry-btn")) {
+      document.getElementById("add-ministry-btn").addEventListener("click", () => {
+        creatingMinistry = true;
+        renderMinistries();
+      });
+    }
+    if (document.getElementById("cancel-create-ministry")) {
+      document.getElementById("cancel-create-ministry").addEventListener("click", () => {
+        creatingMinistry = false;
+        renderMinistries();
+      });
+    }
+    if (document.getElementById("create-ministry-form")) {
+      document.getElementById("create-ministry-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const messageEl = document.getElementById("create-ministry-message");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const id = slugify(form.name.value.trim()) || "ministerio-" + Date.now();
+          const { error } = await sbClient.from("ministries").insert({
+            id,
+            name: form.name.value.trim(),
+            icon: form.icon.value.trim() || "🤝",
+            description: form.description.value.trim(),
+            sort_order: ministries.length,
+          });
+          if (error) throw error;
+          await loadMinistries();
+          populateMinistrySelect();
+          creatingMinistry = false;
+          renderMinistries();
+        } catch (err) {
+          messageEl.textContent = "No se pudo agregar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    }
+
+    grid.querySelectorAll("[data-edit-ministry-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingMinistryId = btn.dataset.editMinistryBtn;
+        renderMinistries();
+      });
+    });
+    grid.querySelectorAll("[data-delete-ministry-btn]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este ministerio?")) return;
+        const { error } = await sbClient.from("ministries").delete().eq("id", btn.dataset.deleteMinistryBtn);
+        if (error) {
+          alert("No se pudo eliminar: " + error.message);
+          return;
+        }
+        await loadMinistries();
+        populateMinistrySelect();
+        renderMinistries();
+      });
+    });
+    grid.querySelectorAll("[data-cancel-ministry]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingMinistryId = null;
+        renderMinistries();
+      });
+    });
+    grid.querySelectorAll("[data-edit-ministry]").forEach((form) => {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = form.dataset.editMinistry;
+        const messageEl = form.querySelector("[data-ministry-message]");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const { error } = await sbClient
+            .from("ministries")
+            .update({
+              name: form.name.value.trim(),
+              icon: form.icon.value.trim() || "🤝",
+              description: form.description.value.trim(),
+            })
+            .eq("id", id);
+          if (error) throw error;
+          await loadMinistries();
+          populateMinistrySelect();
+          editingMinistryId = null;
+          renderMinistries();
+        } catch (err) {
+          messageEl.textContent = "No se pudo guardar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
     });
   }
 
@@ -826,7 +1497,7 @@
     const m = ministryById(id);
     document.getElementById("ministry-detail-block").hidden = false;
     const relatedAnnouncements = allAnnouncements().filter((a) => a.ministryId === id);
-    const relatedEvents = SAMPLE_EVENTS.filter((e) => e.ministryId === id);
+    const relatedEvents = events.filter((e) => e.ministryId === id);
 
     document.getElementById("ministry-detail").innerHTML = `
       <div class="ministry-detail-head">
@@ -1004,14 +1675,38 @@
     });
   }
 
+  function resetEditingState() {
+    editingAbout = false;
+    editingPhotoPairId = null;
+    creatingPhotoPair = false;
+    editingMinistryId = null;
+    creatingMinistry = false;
+    editingShowId = null;
+    creatingPodcast = false;
+    editingEpisodeId = null;
+    creatingEpisode = false;
+    editingEventId = null;
+    creatingEvent = false;
+  }
+
+  function rerenderEditableContent() {
+    renderAbout();
+    renderPhotoPairs();
+    renderMinistries();
+    renderShows();
+    renderCalendar();
+    if (!document.getElementById("episodes-block").hidden && currentShowId) {
+      openShow(currentShowId);
+    }
+  }
+
   async function refreshAuth() {
     if (!sbClient) {
       currentUser = null;
       currentRole = "guest";
       renderAuthSection();
       updateCreateAnnouncementVisibility();
-      renderAbout();
-      renderPhotoPairs();
+      rerenderEditableContent();
       return;
     }
     try {
@@ -1034,11 +1729,8 @@
     }
     renderAuthSection();
     updateCreateAnnouncementVisibility();
-    editingAbout = false;
-    editingPhotoPairId = null;
-    creatingPhotoPair = false;
-    renderAbout();
-    renderPhotoPairs();
+    resetEditingState();
+    rerenderEditableContent();
   }
 
   if (sbClient) {
@@ -1071,9 +1763,20 @@
     renderNotifications();
     updateBadge();
 
-    await Promise.all([loadSiteSettings(), loadActivityPhotos(), loadAnnouncements()]);
+    await Promise.all([
+      loadSiteSettings(),
+      loadActivityPhotos(),
+      loadAnnouncements(),
+      loadMinistries(),
+      loadPodcasts(),
+      loadEvents(),
+    ]);
+    populateMinistrySelect();
     renderAbout();
     renderPhotoPairs();
+    renderMinistries();
+    renderShows();
+    renderCalendar();
     renderFeed();
 
     await refreshAuth();
