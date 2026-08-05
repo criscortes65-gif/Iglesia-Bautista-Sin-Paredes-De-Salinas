@@ -160,23 +160,32 @@
   }
 
   async function loadAnnouncements() {
-    const { data, error } = await sbClient
-      .from("announcements")
-      .select("*")
-      .order("event_date", { ascending: false });
-    if (error) {
-      console.error("No se pudieron cargar los anuncios desde Supabase:", error.message);
+    if (!sbClient) {
       remoteAnnouncements = [];
       return;
     }
-    remoteAnnouncements = data.map((row) => ({
-      id: row.id,
-      title: row.title,
-      detail: row.detail,
-      category: row.category,
-      ministryId: row.ministry_id || undefined,
-      date: row.event_date,
-    }));
+    try {
+      const { data, error } = await sbClient
+        .from("announcements")
+        .select("*")
+        .order("event_date", { ascending: false });
+      if (error) {
+        console.error("No se pudieron cargar los anuncios desde Supabase:", error.message);
+        remoteAnnouncements = [];
+        return;
+      }
+      remoteAnnouncements = data.map((row) => ({
+        id: row.id,
+        title: row.title,
+        detail: row.detail,
+        category: row.category,
+        ministryId: row.ministry_id || undefined,
+        date: row.event_date,
+      }));
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para cargar anuncios:", e);
+      remoteAnnouncements = [];
+    }
   }
 
   function ministryById(id) {
@@ -626,6 +635,15 @@
   function renderAuthSection() {
     const wrap = document.getElementById("auth-section");
 
+    if (!sbClient) {
+      wrap.innerHTML = `
+        <div class="card">
+          <p class="form-message error">No se pudo conectar con el servidor de cuentas. Revisa tu conexión a internet y recarga la página.</p>
+        </div>
+      `;
+      return;
+    }
+
     if (!currentUser) {
       wrap.innerHTML = `
         <div class="card auth-card">
@@ -710,26 +728,41 @@
   }
 
   async function refreshAuth() {
-    const { data: { session } } = await sbClient.auth.getSession();
-    currentUser = session ? session.user : null;
-    if (currentUser) {
-      const { data: profile, error } = await sbClient
-        .from("profiles")
-        .select("role")
-        .eq("id", currentUser.id)
-        .single();
-      currentRole = error ? "user" : profile.role;
-    } else {
+    if (!sbClient) {
+      currentUser = null;
+      currentRole = "guest";
+      renderAuthSection();
+      updateCreateAnnouncementVisibility();
+      return;
+    }
+    try {
+      const { data: { session } } = await sbClient.auth.getSession();
+      currentUser = session ? session.user : null;
+      if (currentUser) {
+        const { data: profile, error } = await sbClient
+          .from("profiles")
+          .select("role")
+          .eq("id", currentUser.id)
+          .single();
+        currentRole = error ? "user" : profile.role;
+      } else {
+        currentRole = "guest";
+      }
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para verificar la sesión:", e);
+      currentUser = null;
       currentRole = "guest";
     }
     renderAuthSection();
     updateCreateAnnouncementVisibility();
   }
 
-  sbClient.auth.onAuthStateChange((event) => {
-    if (event === "INITIAL_SESSION") return;
-    refreshAuth().then(() => loadAnnouncements().then(renderFeed));
-  });
+  if (sbClient) {
+    sbClient.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION") return;
+      refreshAuth().then(() => loadAnnouncements().then(renderFeed));
+    });
+  }
 
   /* ---------------- Perfil ---------------- */
 
