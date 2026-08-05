@@ -71,12 +71,29 @@
 
         <section class="block">
           <div class="block-head">
+            <h2>Quiénes somos</h2>
+          </div>
+          <div class="card about-card">
+            <div class="about-photo" id="about-photo">📷</div>
+            <div class="about-body">
+              <strong>Iglesia Bautista Sin Paredes de Salinas</strong>
+              <p>
+                Somos una iglesia que cree que la fe no tiene paredes: nos reunimos para adorar,
+                servir a nuestra comunidad y crecer juntos en la Palabra. Nuestras puertas están
+                abiertas para todos, sin importar de dónde vengas.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
             <h2>Actividades recientes</h2>
           </div>
           <div class="photo-pairs" id="photo-pairs"></div>
         </section>
 
-        <section class="block">
+        <section class="block" id="create-announcement-block" hidden>
           <div class="block-head">
             <h2>Crear anuncio</h2>
           </div>
@@ -102,8 +119,10 @@
               <select id="ann-ministry"></select>
             </label>
             <button type="submit" class="btn-primary">Publicar anuncio</button>
+            <p class="form-message" id="ann-message"></p>
           </form>
         </section>
+        <p class="admin-hint" id="non-admin-hint" hidden>Los anuncios los publican los administradores de la iglesia.</p>
 
         <section class="block">
           <div class="block-head">
@@ -186,13 +205,7 @@
           <p class="subtitle">Ajustes de tu cuenta</p>
         </div>
 
-        <div class="card profile-card">
-          <div class="avatar">🙏</div>
-          <div>
-            <strong id="profile-name">Miembro de la iglesia</strong>
-            <p>Iglesia Bautista Sin Paredes de Salinas</p>
-          </div>
-        </div>
+        <div id="auth-section"></div>
 
         <section class="block">
           <div class="block-head"><h2>Notificaciones que quiero recibir</h2></div>
@@ -267,6 +280,8 @@
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/supabase-config.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

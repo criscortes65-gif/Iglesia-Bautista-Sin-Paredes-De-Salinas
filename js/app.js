@@ -102,7 +102,7 @@
     },
   };
 
-  let customAnnouncements = store.get("ibsp:customAnnouncements", []);
+  let remoteAnnouncements = [];
   let notifications = store.get("ibsp:notifications", buildDefaultNotifications());
   let selectedCalendarDate = null;
   let currentCalendarMonth = new Date(2026, 7, 1); // August 2026
@@ -110,6 +110,9 @@
   let currentMinistryId = null;
 
   let player = { playing: false, progress: 0, timer: null, title: "", show: "" };
+
+  let currentUser = null;
+  let currentRole = "guest"; // "guest" | "user" | "admin"
 
   function buildDefaultNotifications() {
     const list = [];
@@ -152,7 +155,28 @@
   }
 
   function allAnnouncements() {
-    return [...customAnnouncements, ...DEFAULT_ANNOUNCEMENTS].sort((a, b) => (a.date < b.date ? 1 : -1));
+    const source = remoteAnnouncements.length ? remoteAnnouncements : DEFAULT_ANNOUNCEMENTS;
+    return [...source].sort((a, b) => (a.date < b.date ? 1 : -1));
+  }
+
+  async function loadAnnouncements() {
+    const { data, error } = await sbClient
+      .from("announcements")
+      .select("*")
+      .order("event_date", { ascending: false });
+    if (error) {
+      console.error("No se pudieron cargar los anuncios desde Supabase:", error.message);
+      remoteAnnouncements = [];
+      return;
+    }
+    remoteAnnouncements = data.map((row) => ({
+      id: row.id,
+      title: row.title,
+      detail: row.detail,
+      category: row.category,
+      ministryId: row.ministry_id || undefined,
+      date: row.event_date,
+    }));
   }
 
   function ministryById(id) {
@@ -202,38 +226,56 @@
     document.getElementById("ann-ministry-wrap").hidden = e.target.value !== "Ministerio";
   });
 
-  document.getElementById("announcement-form").addEventListener("submit", (e) => {
+  function updateCreateAnnouncementVisibility() {
+    const isAdmin = currentRole === "admin";
+    document.getElementById("create-announcement-block").hidden = !isAdmin;
+    document.getElementById("non-admin-hint").hidden = isAdmin;
+  }
+
+  document.getElementById("announcement-form").addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (currentRole !== "admin") return;
     const title = document.getElementById("ann-title").value.trim();
     const detail = document.getElementById("ann-detail").value.trim();
     const category = document.getElementById("ann-category").value;
-    const ministryId = category === "Ministerio" ? document.getElementById("ann-ministry").value : undefined;
+    const ministryId = category === "Ministerio" ? document.getElementById("ann-ministry").value : null;
     if (!title || !detail) return;
 
-    const item = {
-      id: "custom-" + Date.now(),
+    const messageEl = document.getElementById("ann-message");
+    messageEl.textContent = "Publicando...";
+    messageEl.className = "form-message";
+
+    const eventDate = new Date().toISOString().slice(0, 10);
+    const { error } = await sbClient.from("announcements").insert({
       title,
       detail,
       category,
-      ministryId,
-      date: new Date().toISOString().slice(0, 10),
-    };
-    customAnnouncements = [item, ...customAnnouncements];
-    store.set("ibsp:customAnnouncements", customAnnouncements);
+      ministry_id: ministryId,
+      event_date: eventDate,
+      created_by: currentUser.id,
+    });
+
+    if (error) {
+      messageEl.textContent = "No se pudo publicar: " + error.message;
+      messageEl.className = "form-message error";
+      return;
+    }
 
     const typeMap = { General: "general", Podcast: "podcast", Ministerio: "ministerio" };
     notifications = [{
-      id: "n-" + item.id,
+      id: "n-" + Date.now(),
       type: typeMap[category],
-      title: title,
+      title,
       message: detail,
-      date: item.date,
+      date: eventDate,
       read: false,
     }, ...notifications];
     store.set("ibsp:notifications", notifications);
 
+    await loadAnnouncements();
     e.target.reset();
     document.getElementById("ann-ministry-wrap").hidden = true;
+    messageEl.textContent = "";
     renderFeed();
     renderNotifications();
     updateBadge();
@@ -579,6 +621,116 @@
     badge.hidden = unread === 0;
   }
 
+  /* ---------------- Autenticación ---------------- */
+
+  function renderAuthSection() {
+    const wrap = document.getElementById("auth-section");
+
+    if (!currentUser) {
+      wrap.innerHTML = `
+        <div class="card auth-card">
+          <div class="auth-tabs">
+            <button class="auth-tab active" data-auth-tab="login" type="button">Iniciar sesión</button>
+            <button class="auth-tab" data-auth-tab="signup" type="button">Crear cuenta</button>
+          </div>
+          <form id="login-form" class="form-card auth-form">
+            <label>Correo electrónico<input type="email" id="login-email" required /></label>
+            <label>Contraseña<input type="password" id="login-password" required /></label>
+            <button type="submit" class="btn-primary">Iniciar sesión</button>
+            <p class="form-message" id="login-message"></p>
+          </form>
+          <form id="signup-form" class="form-card auth-form" hidden>
+            <label>Correo electrónico<input type="email" id="signup-email" required /></label>
+            <label>Contraseña (mínimo 6 caracteres)<input type="password" id="signup-password" required minlength="6" /></label>
+            <button type="submit" class="btn-primary">Crear cuenta</button>
+            <p class="form-message" id="signup-message"></p>
+          </form>
+        </div>
+      `;
+
+      wrap.querySelectorAll(".auth-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.dataset.authTab;
+          wrap.querySelectorAll(".auth-tab").forEach((b) => b.classList.toggle("active", b === btn));
+          document.getElementById("login-form").hidden = target !== "login";
+          document.getElementById("signup-form").hidden = target !== "signup";
+        });
+      });
+
+      document.getElementById("login-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const email = document.getElementById("login-email").value.trim();
+        const password = document.getElementById("login-password").value;
+        const messageEl = document.getElementById("login-message");
+        messageEl.textContent = "Entrando...";
+        messageEl.className = "form-message";
+        const { error } = await sbClient.auth.signInWithPassword({ email, password });
+        if (error) {
+          messageEl.textContent = error.message;
+          messageEl.className = "form-message error";
+        }
+      });
+
+      document.getElementById("signup-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const email = document.getElementById("signup-email").value.trim();
+        const password = document.getElementById("signup-password").value;
+        const messageEl = document.getElementById("signup-message");
+        messageEl.textContent = "Creando cuenta...";
+        messageEl.className = "form-message";
+        const { data, error } = await sbClient.auth.signUp({ email, password });
+        if (error) {
+          messageEl.textContent = error.message;
+          messageEl.className = "form-message error";
+          return;
+        }
+        messageEl.textContent = data.session
+          ? "Cuenta creada."
+          : "Cuenta creada. Revisa tu correo para confirmarla antes de iniciar sesión.";
+        messageEl.className = "form-message success";
+      });
+      return;
+    }
+
+    const badgeClass = currentRole === "admin" ? "role-badge admin" : "role-badge";
+    const roleLabel = currentRole === "admin" ? "Administrador" : "Miembro";
+    wrap.innerHTML = `
+      <div class="card profile-card">
+        <div class="avatar">🙏</div>
+        <div>
+          <strong>${currentUser.email}</strong><br />
+          <span class="${badgeClass}">${roleLabel}</span>
+        </div>
+      </div>
+      <button class="btn-secondary" id="logout-btn" type="button">Cerrar sesión</button>
+    `;
+    document.getElementById("logout-btn").addEventListener("click", async () => {
+      await sbClient.auth.signOut();
+    });
+  }
+
+  async function refreshAuth() {
+    const { data: { session } } = await sbClient.auth.getSession();
+    currentUser = session ? session.user : null;
+    if (currentUser) {
+      const { data: profile, error } = await sbClient
+        .from("profiles")
+        .select("role")
+        .eq("id", currentUser.id)
+        .single();
+      currentRole = error ? "user" : profile.role;
+    } else {
+      currentRole = "guest";
+    }
+    renderAuthSection();
+    updateCreateAnnouncementVisibility();
+  }
+
+  sbClient.auth.onAuthStateChange((event) => {
+    if (event === "INITIAL_SESSION") return;
+    refreshAuth().then(() => loadAnnouncements().then(renderFeed));
+  });
+
   /* ---------------- Perfil ---------------- */
 
   const prefs = store.get("ibsp:prefs", { podcast: true, ministerio: true, evento: true, general: true });
@@ -592,12 +744,19 @@
 
   /* ---------------- Init ---------------- */
 
-  populateMinistrySelect();
-  renderPhotoPairs();
-  renderFeed();
-  renderCalendar();
-  renderShows();
-  renderMinistries();
-  renderNotifications();
-  updateBadge();
+  async function init() {
+    populateMinistrySelect();
+    renderPhotoPairs();
+    renderCalendar();
+    renderShows();
+    renderMinistries();
+    renderNotifications();
+    updateBadge();
+
+    await refreshAuth();
+    await loadAnnouncements();
+    renderFeed();
+  }
+
+  init();
 })();
