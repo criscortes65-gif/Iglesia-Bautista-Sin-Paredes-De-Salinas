@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Iglesia Bautista Sin Paredes de Salinas</title>
+<meta name="description" content="Anuncios, ministerios, calendario y podcasts de Iglesia Bautista Sin Paredes de Salinas" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<div class="bg-motion" aria-hidden="true">
+  <span class="blob blob-blue"></span>
+  <span class="blob blob-green"></span>
+  <span class="blob blob-white"></span>
+</div>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">IBSP</span>
+      <div class="brand-text">
+        <strong>Iglesia Bautista</strong>
+        <span>Sin Paredes de Salinas</span>
+      </div>
+    </div>
+    <button class="bell-btn" id="bell-btn" data-screen-target="notificaciones" aria-label="Notificaciones">
+      🔔<span class="badge" id="notif-badge">0</span>
+    </button>
+  </header>
+
+  <div class="layout">
+    <nav class="sidenav" aria-label="Navegación principal">
+      <button class="nav-item active" data-screen-target="inicio">
+        <span class="nav-icon">🏠</span><span>Inicio</span>
+      </button>
+      <button class="nav-item" data-screen-target="calendario">
+        <span class="nav-icon">📅</span><span>Calendario</span>
+      </button>
+      <button class="nav-item" data-screen-target="podcasts">
+        <span class="nav-icon">🎙️</span><span>Podcasts</span>
+      </button>
+      <button class="nav-item" data-screen-target="ministerios">
+        <span class="nav-icon">🤝</span><span>Ministerios</span>
+      </button>
+      <button class="nav-item" data-screen-target="notificaciones">
+        <span class="nav-icon">🔔</span><span>Notificaciones</span>
+      </button>
+      <button class="nav-item" data-screen-target="perfil">
+        <span class="nav-icon">⚙️</span><span>Perfil</span>
+      </button>
+    </nav>
+
+    <main class="content">
+
+      <!-- INICIO -->
+      <section class="screen active" id="screen-inicio" data-screen="inicio">
+        <div class="screen-head">
+          <h1>Inicio</h1>
+          <p class="subtitle">Lo que está pasando en nuestra iglesia</p>
+        </div>
+
+        <div class="live-card" id="live-card">
+          <div class="live-dot"></div>
+          <div>
+            <strong>Culto en vivo por Facebook</strong>
+            <p>Todos los domingos a las 10:00 a.m.</p>
+          </div>
+        </div>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Actividades recientes</h2>
+          </div>
+          <div class="photo-pairs" id="photo-pairs"></div>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Crear anuncio</h2>
+          </div>
+          <form id="announcement-form" class="card form-card">
+            <label>
+              Título
+              <input type="text" id="ann-title" placeholder="Ej: Ensayo de alabanza" required />
+            </label>
+            <label>
+              Detalle
+              <textarea id="ann-detail" rows="3" placeholder="Escribe los detalles del anuncio..." required></textarea>
+            </label>
+            <label>
+              Categoría
+              <select id="ann-category">
+                <option value="General">General</option>
+                <option value="Podcast">Podcast</option>
+                <option value="Ministerio">Ministerio</option>
+              </select>
+            </label>
+            <label id="ann-ministry-wrap" hidden>
+              Ministerio
+              <select id="ann-ministry"></select>
+            </label>
+            <button type="submit" class="btn-primary">Publicar anuncio</button>
+          </form>
+        </section>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Anuncios</h2>
+          </div>
+          <div class="feed" id="feed-list"></div>
+        </section>
+      </section>
+
+      <!-- CALENDARIO -->
+      <section class="screen" id="screen-calendario" data-screen="calendario">
+        <div class="screen-head">
+          <h1>Calendario</h1>
+          <p class="subtitle">Actividades y eventos próximos</p>
+        </div>
+
+        <div class="card calendar-card">
+          <div class="calendar-nav">
+            <button id="cal-prev" aria-label="Mes anterior">‹</button>
+            <strong id="cal-month-label"></strong>
+            <button id="cal-next" aria-label="Mes siguiente">›</button>
+          </div>
+          <div class="calendar-grid" id="calendar-grid"></div>
+        </div>
+
+        <section class="block">
+          <div class="block-head">
+            <h2>Próximos eventos</h2>
+          </div>
+          <div class="events-list" id="events-list"></div>
+        </section>
+      </section>
+
+      <!-- PODCASTS -->
+      <section class="screen" id="screen-podcasts" data-screen="podcasts">
+        <div class="screen-head">
+          <h1>Podcasts</h1>
+          <p class="subtitle">Escucha nuestros programas</p>
+        </div>
+        <div class="podcast-shows" id="podcast-shows"></div>
+
+        <section class="block" id="episodes-block" hidden>
+          <div class="block-head">
+            <button class="link-back" id="back-to-shows">‹ Podcasts</button>
+          </div>
+          <div id="episodes-header"></div>
+          <div class="episodes-list" id="episodes-list"></div>
+        </section>
+      </section>
+
+      <!-- MINISTERIOS -->
+      <section class="screen" id="screen-ministerios" data-screen="ministerios">
+        <div class="screen-head">
+          <h1>Ministerios</h1>
+          <p class="subtitle">Encuentra tu lugar para servir</p>
+        </div>
+        <div class="ministries-grid" id="ministries-grid"></div>
+
+        <section class="block" id="ministry-detail-block" hidden>
+          <div class="block-head">
+            <button class="link-back" id="back-to-ministries">‹ Ministerios</button>
+          </div>
+          <div id="ministry-detail"></div>
+        </section>
+      </section>
+
+      <!-- NOTIFICACIONES -->
+      <section class="screen" id="screen-notificaciones" data-screen="notificaciones">
+        <div class="screen-head">
+          <h1>Notificaciones</h1>
+          <p class="subtitle">Mantente al día</p>
+        </div>
+        <div class="notif-list" id="notif-list"></div>
+      </section>
+
+      <!-- PERFIL -->
+      <section class="screen" id="screen-perfil" data-screen="perfil">
+        <div class="screen-head">
+          <h1>Perfil</h1>
+          <p class="subtitle">Ajustes de tu cuenta</p>
+        </div>
+
+        <div class="card profile-card">
+          <div class="avatar">🙏</div>
+          <div>
+            <strong id="profile-name">Miembro de la iglesia</strong>
+            <p>Iglesia Bautista Sin Paredes de Salinas</p>
+          </div>
+        </div>
+
+        <section class="block">
+          <div class="block-head"><h2>Notificaciones que quiero recibir</h2></div>
+          <div class="card">
+            <label class="toggle-row">
+              <span>Nuevo capítulo de podcast</span>
+              <input type="checkbox" data-pref="podcast" checked />
+            </label>
+            <label class="toggle-row">
+              <span>Anuncios de un ministerio específico</span>
+              <input type="checkbox" data-pref="ministerio" checked />
+            </label>
+            <label class="toggle-row">
+              <span>Recordatorio de evento próximo</span>
+              <input type="checkbox" data-pref="evento" checked />
+            </label>
+            <label class="toggle-row">
+              <span>Nuevo anuncio general</span>
+              <input type="checkbox" data-pref="general" checked />
+            </label>
+          </div>
+        </section>
+
+        <section class="block">
+          <div class="block-head"><h2>Iglesia</h2></div>
+          <div class="card">
+            <p><strong>Iglesia Bautista Sin Paredes de Salinas</strong></p>
+            <p>Culto en vivo por Facebook — domingos 10:00 a.m.</p>
+            <p>Podcasts: Más Allá de las Paredes · Entre Hermanas</p>
+          </div>
+        </section>
+      </section>
+
+    </main>
+  </div>
+
+  <nav class="bottomnav" aria-label="Navegación móvil">
+    <button class="nav-item active" data-screen-target="inicio">
+      <span class="nav-icon">🏠</span><span>Inicio</span>
+    </button>
+    <button class="nav-item" data-screen-target="calendario">
+      <span class="nav-icon">📅</span><span>Calendario</span>
+    </button>
+    <button class="nav-item" data-screen-target="podcasts">
+      <span class="nav-icon">🎙️</span><span>Podcasts</span>
+    </button>
+    <button class="nav-item" data-screen-target="ministerios">
+      <span class="nav-icon">🤝</span><span>Ministerios</span>
+    </button>
+    <button class="nav-item" data-screen-target="notificaciones">
+      <span class="nav-icon">🔔</span><span>Notif.</span>
+    </button>
+    <button class="nav-item" data-screen-target="perfil">
+      <span class="nav-icon">⚙️</span><span>Perfil</span>
+    </button>
+  </nav>
+
+  <div class="mini-player" id="mini-player" hidden>
+    <div class="mini-player-info">
+      <span class="mini-player-cover">🎙️</span>
+      <div>
+        <strong id="mini-player-title">—</strong>
+        <span id="mini-player-show">—</span>
+      </div>
+    </div>
+    <div class="mini-player-controls">
+      <div class="progress-track"><div class="progress-fill" id="mini-player-progress"></div></div>
+      <button id="mini-player-toggle" aria-label="Reproducir o pausar">▶</button>
+      <button id="mini-player-close" aria-label="Cerrar reproductor">✕</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
