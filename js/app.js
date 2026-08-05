@@ -60,11 +60,13 @@
     { id: "a5", title: "Recuerda: culto en vivo por Facebook", detail: "Cada domingo a las 10:00 a.m. transmitimos el culto en vivo.", category: "General", date: "2026-08-02" },
   ];
 
-  const ACTIVITY_PHOTO_GROUPS = [
-    { id: "p1", caption: "Retiro de Jóvenes", date: "Julio 2026" },
-    { id: "p2", caption: "Servicio Comunitario", date: "Julio 2026" },
-    { id: "p3", caption: "Confraternidad Dorcas", date: "Junio 2026" },
-    { id: "p4", caption: "Noche Entre Hermanas", date: "Junio 2026" },
+  const DEFAULT_ABOUT_TEXT = "Somos una iglesia que cree que la fe no tiene paredes: nos reunimos para adorar, servir a nuestra comunidad y crecer juntos en la Palabra. Nuestras puertas están abiertas para todos, sin importar de dónde vengas.";
+
+  const DEFAULT_ACTIVITY_PHOTOS = [
+    { id: "p1", caption: "Retiro de Jóvenes", date: "Julio 2026", img1: null, img2: null },
+    { id: "p2", caption: "Servicio Comunitario", date: "Julio 2026", img1: null, img2: null },
+    { id: "p3", caption: "Confraternidad Dorcas", date: "Junio 2026", img1: null, img2: null },
+    { id: "p4", caption: "Noche Entre Hermanas", date: "Junio 2026", img1: null, img2: null },
   ];
 
   /* Sample calendar events — edit dates/titles with the real church schedule. */
@@ -113,6 +115,12 @@
 
   let currentUser = null;
   let currentRole = "guest"; // "guest" | "user" | "admin"
+
+  let aboutSettings = { about_text: DEFAULT_ABOUT_TEXT, about_photo_url: null };
+  let activityPhotos = DEFAULT_ACTIVITY_PHOTOS;
+  let editingAbout = false;
+  let editingPhotoPairId = null;
+  let creatingPhotoPair = false;
 
   function buildDefaultNotifications() {
     const list = [];
@@ -188,6 +196,48 @@
     }
   }
 
+  async function uploadPhoto(file) {
+    const path = Date.now() + "-" + Math.random().toString(36).slice(2) + "-" + file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    const { error } = await sbClient.storage.from("photos").upload(path, file);
+    if (error) throw error;
+    const { data } = sbClient.storage.from("photos").getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  async function loadSiteSettings() {
+    if (!sbClient) return;
+    try {
+      const { data, error } = await sbClient.from("site_settings").select("*").eq("id", 1).single();
+      if (error) {
+        console.error("No se pudo cargar 'Quiénes somos' desde Supabase:", error.message);
+        return;
+      }
+      aboutSettings = { about_text: data.about_text || DEFAULT_ABOUT_TEXT, about_photo_url: data.about_photo_url };
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para cargar 'Quiénes somos':", e);
+    }
+  }
+
+  async function loadActivityPhotos() {
+    if (!sbClient) return;
+    try {
+      const { data, error } = await sbClient.from("activity_photos").select("*").order("sort_order", { ascending: true });
+      if (error) {
+        console.error("No se pudieron cargar las fotos de actividades desde Supabase:", error.message);
+        return;
+      }
+      activityPhotos = data.map((row) => ({
+        id: row.id,
+        caption: row.caption,
+        date: row.photo_date,
+        img1: row.image_url_1,
+        img2: row.image_url_2,
+      }));
+    } catch (e) {
+      console.error("No se pudo conectar con Supabase para cargar fotos de actividades:", e);
+    }
+  }
+
   function ministryById(id) {
     return MINISTRIES.find((m) => m.id === id);
   }
@@ -209,19 +259,246 @@
     btn.addEventListener("click", () => showScreen(btn.dataset.screenTarget));
   });
 
+  /* ---------------- Inicio: "Quiénes somos" ---------------- */
+
+  function renderAbout() {
+    const wrap = document.getElementById("about-card");
+    const isAdmin = currentRole === "admin";
+
+    if (isAdmin && editingAbout) {
+      wrap.innerHTML = `
+        <div class="card">
+          <form id="about-edit-form" class="edit-form">
+            <label>Foto (opcional, deja vacío para no cambiarla)
+              <input type="file" id="about-photo-input" accept="image/*" />
+            </label>
+            <label>Descripción
+              <textarea id="about-text-input" rows="4">${aboutSettings.about_text}</textarea>
+            </label>
+            <div class="edit-form-actions">
+              <button type="submit" class="btn-primary">Guardar</button>
+              <button type="button" class="btn-secondary" id="about-cancel-btn">Cancelar</button>
+            </div>
+            <p class="form-message" id="about-edit-message"></p>
+          </form>
+        </div>
+      `;
+      document.getElementById("about-cancel-btn").addEventListener("click", () => {
+        editingAbout = false;
+        renderAbout();
+      });
+      document.getElementById("about-edit-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const messageEl = document.getElementById("about-edit-message");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const fileInput = document.getElementById("about-photo-input");
+          let photoUrl = aboutSettings.about_photo_url;
+          if (fileInput.files[0]) {
+            photoUrl = await uploadPhoto(fileInput.files[0]);
+          }
+          const text = document.getElementById("about-text-input").value.trim();
+          const { error } = await sbClient
+            .from("site_settings")
+            .update({ about_text: text, about_photo_url: photoUrl })
+            .eq("id", 1);
+          if (error) throw error;
+          await loadSiteSettings();
+          editingAbout = false;
+          renderAbout();
+        } catch (err) {
+          messageEl.textContent = "No se pudo guardar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+      return;
+    }
+
+    wrap.innerHTML = `
+      <div class="card about-card">
+        <div class="about-photo">${aboutSettings.about_photo_url ? `<img src="${aboutSettings.about_photo_url}" alt="Foto de la iglesia" />` : "📷"}</div>
+        <div class="about-body">
+          <strong>Iglesia Bautista Sin Paredes de Salinas</strong>
+          <p>${aboutSettings.about_text}</p>
+          ${isAdmin ? `<button class="edit-btn" id="about-edit-btn" type="button">✎ Editar</button>` : ""}
+        </div>
+      </div>
+    `;
+    if (isAdmin) {
+      document.getElementById("about-edit-btn").addEventListener("click", () => {
+        editingAbout = true;
+        renderAbout();
+      });
+    }
+  }
+
   /* ---------------- Inicio: photo pairs ---------------- */
 
   function renderPhotoPairs() {
     const wrap = document.getElementById("photo-pairs");
-    wrap.innerHTML = ACTIVITY_PHOTO_GROUPS.map((g) => `
-      <div class="photo-pair-card">
-        <div class="photo-pair-grid">
-          <div class="photo-slot" data-photo-slot="${g.id}-1">📷</div>
-          <div class="photo-slot" data-photo-slot="${g.id}-2">📷</div>
+    const isAdmin = currentRole === "admin";
+
+    let html = activityPhotos.map((g) => {
+      if (isAdmin && editingPhotoPairId === g.id) {
+        return `
+          <div class="photo-pair-card">
+            <form class="edit-form card" data-edit-pair="${g.id}">
+              <label>Título<input type="text" name="caption" value="${g.caption}" required /></label>
+              <label>Fecha<input type="text" name="date" value="${g.date}" required /></label>
+              <label>Foto 1 (opcional)<input type="file" name="photo1" accept="image/*" /></label>
+              <label>Foto 2 (opcional)<input type="file" name="photo2" accept="image/*" /></label>
+              <div class="edit-form-actions">
+                <button type="submit" class="btn-primary">Guardar</button>
+                <button type="button" class="btn-secondary" data-cancel-pair>Cancelar</button>
+              </div>
+              <p class="form-message" data-pair-message></p>
+            </form>
+          </div>
+        `;
+      }
+      return `
+        <div class="photo-pair-card">
+          <div class="photo-pair-grid">
+            <div class="photo-slot">${g.img1 ? `<img src="${g.img1}" alt="" />` : "📷"}</div>
+            <div class="photo-slot">${g.img2 ? `<img src="${g.img2}" alt="" />` : "📷"}</div>
+          </div>
+          <div class="photo-pair-caption">
+            <span>${g.caption}<span class="photo-pair-date">${g.date}</span></span>
+            ${isAdmin ? `
+              <span class="photo-pair-admin-actions">
+                <button class="icon-btn" data-edit-pair-btn="${g.id}" type="button" aria-label="Editar">✎</button>
+                <button class="icon-btn" data-delete-pair-btn="${g.id}" type="button" aria-label="Eliminar">✕</button>
+              </span>
+            ` : ""}
+          </div>
         </div>
-        <div class="photo-pair-caption">${g.caption}<span class="photo-pair-date">${g.date}</span></div>
-      </div>
-    `).join("");
+      `;
+    }).join("");
+
+    if (isAdmin) {
+      if (creatingPhotoPair) {
+        html += `
+          <div class="photo-pair-card">
+            <form class="edit-form card" id="create-pair-form">
+              <label>Título<input type="text" name="caption" placeholder="Ej: Bautismos" required /></label>
+              <label>Fecha<input type="text" name="date" placeholder="Ej: Agosto 2026" required /></label>
+              <label>Foto 1<input type="file" name="photo1" accept="image/*" /></label>
+              <label>Foto 2<input type="file" name="photo2" accept="image/*" /></label>
+              <div class="edit-form-actions">
+                <button type="submit" class="btn-primary">Agregar</button>
+                <button type="button" class="btn-secondary" id="cancel-create-pair">Cancelar</button>
+              </div>
+              <p class="form-message" id="create-pair-message"></p>
+            </form>
+          </div>
+        `;
+      } else {
+        html += `<button class="photo-pair-add" id="add-pair-btn" type="button">+ Agregar par de fotos</button>`;
+      }
+    }
+
+    wrap.innerHTML = html;
+
+    if (!isAdmin) return;
+
+    if (document.getElementById("add-pair-btn")) {
+      document.getElementById("add-pair-btn").addEventListener("click", () => {
+        creatingPhotoPair = true;
+        renderPhotoPairs();
+      });
+    }
+    if (document.getElementById("cancel-create-pair")) {
+      document.getElementById("cancel-create-pair").addEventListener("click", () => {
+        creatingPhotoPair = false;
+        renderPhotoPairs();
+      });
+    }
+    if (document.getElementById("create-pair-form")) {
+      document.getElementById("create-pair-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const messageEl = document.getElementById("create-pair-message");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const caption = form.caption.value.trim();
+          const date = form.date.value.trim();
+          const photo1 = form.photo1.files[0];
+          const photo2 = form.photo2.files[0];
+          const img1 = photo1 ? await uploadPhoto(photo1) : null;
+          const img2 = photo2 ? await uploadPhoto(photo2) : null;
+          const { error } = await sbClient.from("activity_photos").insert({
+            caption,
+            photo_date: date,
+            image_url_1: img1,
+            image_url_2: img2,
+            sort_order: activityPhotos.length,
+          });
+          if (error) throw error;
+          await loadActivityPhotos();
+          creatingPhotoPair = false;
+          renderPhotoPairs();
+        } catch (err) {
+          messageEl.textContent = "No se pudo agregar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    }
+
+    wrap.querySelectorAll("[data-edit-pair-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingPhotoPairId = btn.dataset.editPairBtn;
+        renderPhotoPairs();
+      });
+    });
+    wrap.querySelectorAll("[data-delete-pair-btn]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este par de fotos?")) return;
+        const { error } = await sbClient.from("activity_photos").delete().eq("id", btn.dataset.deletePairBtn);
+        if (error) {
+          alert("No se pudo eliminar: " + error.message);
+          return;
+        }
+        await loadActivityPhotos();
+        renderPhotoPairs();
+      });
+    });
+    wrap.querySelectorAll("[data-cancel-pair]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        editingPhotoPairId = null;
+        renderPhotoPairs();
+      });
+    });
+    wrap.querySelectorAll("[data-edit-pair]").forEach((form) => {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = form.dataset.editPair;
+        const messageEl = form.querySelector("[data-pair-message]");
+        messageEl.textContent = "Guardando...";
+        messageEl.className = "form-message";
+        try {
+          const current = activityPhotos.find((p) => String(p.id) === id);
+          const caption = form.caption.value.trim();
+          const date = form.date.value.trim();
+          const photo1 = form.photo1.files[0];
+          const photo2 = form.photo2.files[0];
+          const img1 = photo1 ? await uploadPhoto(photo1) : current.img1;
+          const img2 = photo2 ? await uploadPhoto(photo2) : current.img2;
+          const { error } = await sbClient
+            .from("activity_photos")
+            .update({ caption, photo_date: date, image_url_1: img1, image_url_2: img2 })
+            .eq("id", id);
+          if (error) throw error;
+          await loadActivityPhotos();
+          editingPhotoPairId = null;
+          renderPhotoPairs();
+        } catch (err) {
+          messageEl.textContent = "No se pudo guardar: " + err.message;
+          messageEl.className = "form-message error";
+        }
+      });
+    });
   }
 
   /* ---------------- Inicio: announcement form ---------------- */
@@ -733,6 +1010,8 @@
       currentRole = "guest";
       renderAuthSection();
       updateCreateAnnouncementVisibility();
+      renderAbout();
+      renderPhotoPairs();
       return;
     }
     try {
@@ -755,6 +1034,11 @@
     }
     renderAuthSection();
     updateCreateAnnouncementVisibility();
+    editingAbout = false;
+    editingPhotoPairId = null;
+    creatingPhotoPair = false;
+    renderAbout();
+    renderPhotoPairs();
   }
 
   if (sbClient) {
@@ -779,6 +1063,7 @@
 
   async function init() {
     populateMinistrySelect();
+    renderAbout();
     renderPhotoPairs();
     renderCalendar();
     renderShows();
@@ -786,9 +1071,12 @@
     renderNotifications();
     updateBadge();
 
-    await refreshAuth();
-    await loadAnnouncements();
+    await Promise.all([loadSiteSettings(), loadActivityPhotos(), loadAnnouncements()]);
+    renderAbout();
+    renderPhotoPairs();
     renderFeed();
+
+    await refreshAuth();
   }
 
   init();
